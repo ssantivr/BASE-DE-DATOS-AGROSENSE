@@ -32,6 +32,20 @@ JOIN (VALUES
     ) AS v(estate_name, name, variety, sowing_date, stage) ON v.estate_name = e.name
 WHERE NOT EXISTS (SELECT 1 FROM crops c WHERE c.id_estate = e.id_estate AND c.name = v.name);
 
+-- Sample ranges of the air's relative humidity, only where none was set.
+UPDATE crops SET air_humidity_min = 60, air_humidity_max = 85
+WHERE name = 'Café' AND air_humidity_min IS NULL AND air_humidity_max IS NULL
+  AND id_estate IN (SELECT e.id_estate FROM estates e JOIN users u ON u.id_user = e.id_user
+                    WHERE u.email = 'demo@agrosense.co');
+UPDATE crops SET air_humidity_min = 60, air_humidity_max = 90
+WHERE name = 'Plátano' AND air_humidity_min IS NULL AND air_humidity_max IS NULL
+  AND id_estate IN (SELECT e.id_estate FROM estates e JOIN users u ON u.id_user = e.id_user
+                    WHERE u.email = 'demo@agrosense.co');
+UPDATE crops SET air_humidity_min = 70, air_humidity_max = 90
+WHERE name = 'Papa' AND air_humidity_min IS NULL AND air_humidity_max IS NULL
+  AND id_estate IN (SELECT e.id_estate FROM estates e JOIN users u ON u.id_user = e.id_user
+                    WHERE u.email = 'demo@agrosense.co');
+
 INSERT INTO sensors (id_crop, sensor_code, sensor_type, location, active, last_reading_at)
 SELECT c.id_crop, v.sensor_code, v.sensor_type, v.location, v.active,
        CASE WHEN v.active THEN CURRENT_TIMESTAMP ELSE CURRENT_TIMESTAMP - INTERVAL '3' DAY END
@@ -44,9 +58,16 @@ JOIN (VALUES
         ('Café', 'AS-003', 'PH', 'Lote sur', TRUE),
         ('Plátano', 'AS-004', 'SOIL_MOISTURE', 'Platanera', TRUE),
         ('Plátano', 'AS-005', 'CONDUCTIVITY', 'Platanera', TRUE),
-        ('Papa', 'AS-006', 'LIGHT', 'Parcela 1', FALSE)
+        ('Papa', 'AS-006', 'SOIL_MOISTURE', 'Parcela 1', FALSE),
+        ('Café', 'AS-007', 'RELATIVE_HUMIDITY', 'Lote norte', TRUE)
     ) AS v(crop_name, sensor_code, sensor_type, location, active) ON v.crop_name = c.name
 WHERE NOT EXISTS (SELECT 1 FROM sensors s WHERE s.sensor_code = v.sensor_code);
+
+-- AS-006 was a light sensor, which the ESP32 does not have. It never had readings, so it only changes type.
+-- AS-003 (pH) and AS-005 (conductivity) stay for the backend's tests; the frontend shows only what the ESP32 measures.
+UPDATE sensors SET sensor_type = 'SOIL_MOISTURE'
+WHERE sensor_code = 'AS-006' AND sensor_type = 'LIGHT'
+  AND NOT EXISTS (SELECT 1 FROM sensor_readings r WHERE r.id_sensor = sensors.id_sensor);
 
 -- A sample outline for one estate, so the map shows both cases: a drawn outline and, for the other estate,
 -- the circle used while none exists. Only set while empty, so an outline drawn in the application is kept.
@@ -69,11 +90,13 @@ UPDATE sensors SET latitude = 1.2145000, longitude = -77.2809000, coverage_m = 3
 WHERE sensor_code = 'AS-005' AND latitude IS NULL;
 UPDATE sensors SET latitude = 1.6047000, longitude = -77.1321000, coverage_m = 35
 WHERE sensor_code = 'AS-006' AND latitude IS NULL;
+UPDATE sensors SET latitude = 1.2139000, longitude = -77.2804000, coverage_m = 60
+WHERE sensor_code = 'AS-007' AND latitude IS NULL;
 
 -- One reading per hour for the last 24 hours of every active sensor.
 
-INSERT INTO sensor_readings (id_sensor, reading_value, unit, recorded_at)
-SELECT s.id_sensor, v.reading_value, '%', CURRENT_TIMESTAMP - v.hours_ago * INTERVAL '1' HOUR
+INSERT INTO sensor_readings (id_sensor, reading_value, unit, recorded_at, source)
+SELECT s.id_sensor, v.reading_value, '%', CURRENT_TIMESTAMP - v.hours_ago * INTERVAL '1' HOUR, 'SEED'
 FROM sensors s
 CROSS JOIN (VALUES
         (23, 53.37), (22, 57.27), (21, 60.64), (20, 63.24), (19, 64.92), (18, 65.65),
@@ -84,8 +107,8 @@ CROSS JOIN (VALUES
 WHERE s.sensor_code = 'AS-001'
   AND NOT EXISTS (SELECT 1 FROM sensor_readings r WHERE r.id_sensor = s.id_sensor);
 
-INSERT INTO sensor_readings (id_sensor, reading_value, unit, recorded_at)
-SELECT s.id_sensor, v.reading_value, '°C', CURRENT_TIMESTAMP - v.hours_ago * INTERVAL '1' HOUR
+INSERT INTO sensor_readings (id_sensor, reading_value, unit, recorded_at, source)
+SELECT s.id_sensor, v.reading_value, '°C', CURRENT_TIMESTAMP - v.hours_ago * INTERVAL '1' HOUR, 'SEED'
 FROM sensors s
 CROSS JOIN (VALUES
         (23, 20.97), (22, 22.82), (21, 24.52), (20, 25.92), (19, 26.91), (18, 27.43),
@@ -96,8 +119,8 @@ CROSS JOIN (VALUES
 WHERE s.sensor_code = 'AS-002'
   AND NOT EXISTS (SELECT 1 FROM sensor_readings r WHERE r.id_sensor = s.id_sensor);
 
-INSERT INTO sensor_readings (id_sensor, reading_value, unit, recorded_at)
-SELECT s.id_sensor, v.reading_value, 'pH', CURRENT_TIMESTAMP - v.hours_ago * INTERVAL '1' HOUR
+INSERT INTO sensor_readings (id_sensor, reading_value, unit, recorded_at, source)
+SELECT s.id_sensor, v.reading_value, 'pH', CURRENT_TIMESTAMP - v.hours_ago * INTERVAL '1' HOUR, 'SEED'
 FROM sensors s
 CROSS JOIN (VALUES
         (23, 6.17), (22, 6.26), (21, 6.34), (20, 6.42), (19, 6.48), (18, 6.52),
@@ -108,8 +131,8 @@ CROSS JOIN (VALUES
 WHERE s.sensor_code = 'AS-003'
   AND NOT EXISTS (SELECT 1 FROM sensor_readings r WHERE r.id_sensor = s.id_sensor);
 
-INSERT INTO sensor_readings (id_sensor, reading_value, unit, recorded_at)
-SELECT s.id_sensor, v.reading_value, '%', CURRENT_TIMESTAMP - v.hours_ago * INTERVAL '1' HOUR
+INSERT INTO sensor_readings (id_sensor, reading_value, unit, recorded_at, source)
+SELECT s.id_sensor, v.reading_value, '%', CURRENT_TIMESTAMP - v.hours_ago * INTERVAL '1' HOUR, 'SEED'
 FROM sensors s
 CROSS JOIN (VALUES
         (23, 65.04), (22, 67.25), (21, 69.49), (20, 71.61), (19, 73.42), (18, 74.77),
@@ -120,8 +143,8 @@ CROSS JOIN (VALUES
 WHERE s.sensor_code = 'AS-004'
   AND NOT EXISTS (SELECT 1 FROM sensor_readings r WHERE r.id_sensor = s.id_sensor);
 
-INSERT INTO sensor_readings (id_sensor, reading_value, unit, recorded_at)
-SELECT s.id_sensor, v.reading_value, 'dS/m', CURRENT_TIMESTAMP - v.hours_ago * INTERVAL '1' HOUR
+INSERT INTO sensor_readings (id_sensor, reading_value, unit, recorded_at, source)
+SELECT s.id_sensor, v.reading_value, 'dS/m', CURRENT_TIMESTAMP - v.hours_ago * INTERVAL '1' HOUR, 'SEED'
 FROM sensors s
 CROSS JOIN (VALUES
         (23, 1.40), (22, 1.44), (21, 1.48), (20, 1.52), (19, 1.55), (18, 1.57),
@@ -130,6 +153,19 @@ CROSS JOIN (VALUES
         (5, 1.18), (4, 1.18), (3, 1.21), (2, 1.25), (1, 1.30), (0, 1.36)
     ) AS v(hours_ago, reading_value)
 WHERE s.sensor_code = 'AS-005'
+  AND NOT EXISTS (SELECT 1 FROM sensor_readings r WHERE r.id_sensor = s.id_sensor);
+
+-- The air's humidity beside AS-002, highest at night when the air is coolest.
+INSERT INTO sensor_readings (id_sensor, reading_value, unit, recorded_at, source)
+SELECT s.id_sensor, v.reading_value, '%', CURRENT_TIMESTAMP - v.hours_ago * INTERVAL '1' HOUR, 'SEED'
+FROM sensors s
+CROSS JOIN (VALUES
+        (23, 80.25), (22, 76.92), (21, 73.86), (20, 71.34), (19, 69.56), (18, 68.63),
+        (17, 68.61), (16, 69.47), (15, 71.09), (14, 73.32), (13, 75.92), (12, 78.69),
+        (11, 81.42), (10, 83.94), (9, 86.10), (8, 87.81), (7, 89.00), (6, 89.65),
+        (5, 89.76), (4, 89.34), (3, 88.46), (2, 87.13), (1, 85.40), (0, 83.33)
+    ) AS v(hours_ago, reading_value)
+WHERE s.sensor_code = 'AS-007'
   AND NOT EXISTS (SELECT 1 FROM sensor_readings r WHERE r.id_sensor = s.id_sensor);
 
 INSERT INTO alerts (id_crop, id_sensor, alert_type, severity, message, detected_value, acknowledged, created_at)
@@ -175,3 +211,14 @@ JOIN (VALUES
         ('Plátano', 0.6400, 'No se requiere riego en las próximas 12 horas.')
     ) AS v(crop_name, confidence, recommendation) ON v.crop_name = c.name
 WHERE NOT EXISTS (SELECT 1 FROM ai_predictions p WHERE p.id_crop = c.id_crop);
+
+-- A sample device on the coffee crop (the ESP32 read over TCP uses it with ESP32_DEVICE_ID=ESP32-PLANTICAS), whose sensors AS-001 (soil moisture), AS-002 (air
+-- temperature), AS-003 (pH) and AS-007 (air humidity, the DHT11's second value) receive its readings. Like the demo user, it is created with a key hash that
+-- matches no key, so it cannot send events until the backend sets one from SEED_DEVICE_KEY.
+INSERT INTO devices (id_crop, device_code, key_hash)
+SELECT c.id_crop, 'ESP32-PLANTICAS', 'DISABLED'
+FROM crops c
+JOIN estates e ON e.id_estate = c.id_estate
+JOIN users u ON u.id_user = e.id_user AND u.email = 'demo@agrosense.co'
+WHERE c.name = 'Café'
+  AND NOT EXISTS (SELECT 1 FROM devices d WHERE d.device_code = 'ESP32-PLANTICAS');
